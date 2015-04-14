@@ -43,36 +43,41 @@ func TestHashTableTimers1(t *testing.T) {
 	StartTimer("total")
 	StartTimer("t1")
 	var expF40 uint64 = expFibonacci(44)
-	var expDeltaT int64 = ResetTimer("t1")
+	var expDeltaT int64 = PollTimer("t1")
+	ResetTimer("t1")
 	var expParF40 uint64 = expParFibonacci(44)
-	var expParDeltaT int64 = StopTimer("t1")
+	EndTimer("t1")
+	var expParDeltaT int64 = GetTimerDelta("t1")
 	StartTimer("t2")
-	var fastF40stop uint64 = fastFibonacci(44)
-	var fastDeltaTstop int64 = StopTimer("t2")
+	var fastF40reset uint64 = fastFibonacci(44)
+	var fastDeltaTreset int64 = ResetTimer("t2")
+	DeleteTimer("t2")
 	StartTimer("t3")
 	var fastF40poll uint64 = fastFibonacci(44)
 	var fastDeltaTpoll int64 = PollTimer("t3")
+	EndTimer("total")
 	t.Logf("Computed expF44=%v in %v ns\n", expF40, expDeltaT)
 	t.Logf("Computed expParF44=%v in %v ns\n", expParF40, expParDeltaT)
-	t.Logf("Computed fastF44stop=%v in %v ns\n", fastF40stop, fastDeltaTstop)
+	t.Logf("Computed fastF44reset=%v in %v ns\n", fastF40reset, fastDeltaTreset)
 	t.Logf("Computed fastF44poll=%v in %v ns\n", fastF40poll, fastDeltaTpoll)
-	t.Logf("Total time taken: %v", StopTimer("total"))
-	StopTimer("t3") // Free memory
+	t.Logf("Total time taken: %v", GetTimerDelta("total"))
+	DeleteTimer("t3") // Free memory
+	DeleteTimer("t1")
 }
 
 func TestHashTableTimers2(t *testing.T) {
 	StartTimer("t1")
 	StartTimer("t2")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	StartTimer("t3")
-	StopTimer("t2")
+	DeleteTimer("t2")
 	StartTimer("t1")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	StartTimer("t4")
 	StartTimer("t1")
-	StopTimer("t4")
-	StopTimer("t1")
-	StopTimer("t3")
+	DeleteTimer("t4")
+	DeleteTimer("t1")
+	DeleteTimer("t3")
 }
 
 func TestHashTableTimers3(t *testing.T) {
@@ -82,10 +87,10 @@ func TestHashTableTimers3(t *testing.T) {
 			if r == nil || !finished {
 				t.Fail()
 			}
-			StopTimer("t1")
+			DeleteTimer("t1")
 		}()
 	StartTimer("t1")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	StartTimer("t1")
 	finished = true
 	StartTimer("t1")
@@ -98,16 +103,16 @@ func TestHashTableTimers4(t *testing.T) {
 			if r == nil || !finished {
 				t.Fail()
 			}
-			StopTimer("t2")
-			StopTimer("t4")
+			DeleteTimer("t2")
+			DeleteTimer("t4")
 		}()
 	StartTimer("t1")
 	StartTimer("t2")
 	StartTimer("t3")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	PollTimer("t3")
 	PollTimer("t2")
-	StopTimer("t3")
+	DeleteTimer("t3")
 	StartTimer("t4")
 	finished = true
 	PollTimer("t3")
@@ -120,17 +125,17 @@ func TestHashTableTimers5(t *testing.T) {
 			if r == nil || !finished {
 				t.Fail()
 			}
-			StopTimer("t3")
-			StopTimer("t4")
+			DeleteTimer("t3")
+			DeleteTimer("t4")
 		}()
 	StartTimer("t1")
 	StartTimer("t3")
 	StartTimer("t2")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	PollTimer("t3")
 	ResetTimer("t2")
 	StartTimer("t4")
-	StopTimer("t2")
+	DeleteTimer("t2")
 	finished = true
 	ResetTimer("t1")
 }
@@ -144,50 +149,55 @@ func TestHashTableTimers6(t *testing.T) {
 			}
 		}()
 	StartTimer("t1")
-	StopTimer("t1")
+	DeleteTimer("t1")
 	StartTimer("t1")
 	StartTimer("t2")
-	StopTimer("t1")
-	StopTimer("t2")
+	DeleteTimer("t1")
+	DeleteTimer("t2")
 	finished = true
-	StopTimer("t1")
+	DeleteTimer("t1")
 }
 
 func TestFileTimers1(t *testing.T) {
 	SetFileTimerCollection("/home/sam/timers")
-	var exp chan int64 = make(chan int64)
-	var expPar chan int64 = make(chan int64)
-	var fast chan int64 = make(chan int64)
+	var exp chan bool = make(chan bool)
+	var expPar chan bool = make(chan bool)
+	var fast chan bool = make(chan bool)
 	var expVal uint64
 	var expParVal uint64
 	var fastVal uint64
 	StartFileTimer("timer1")
+	StartFileTimer("timer2")
+	StartFileTimer("timer3")
 	go func () {
 			expVal = expFibonacci(45)
-			exp <- PollFileTimer("timer1")
+			EndFileTimer("timer1")
+			exp <- true
 		}()
 	go func () {
-			StartFileTimer("timer2")
 			expParVal = expParFibonacci(45)
-			expPar <- PollFileTimer("timer2")
-			DeleteFileTimer("timer2")
+			EndFileTimer("timer2")
+			expPar <- true
 		}()
 	go func () {
 			fastVal = fastFibonacci(45)
-			fast <- PollFileTimer("timer1")
+			EndFileTimer("timer3")
+			fast <- true
 		}()
 		
-	var expTime int64
-	var expParTime int64
-	var fastTime int64
 	for i := 0; i < 3; i++ {
 		select {
-			case expTime = <-exp:
-			case expParTime = <-expPar:
-			case fastTime = <-fast:
+			case <-exp:
+			case <-expPar:
+			case <-fast:
 		}
 	}
+	var expTime int64 = GetFileTimerDelta("timer1")
+	var expParTime int64 = GetFileTimerDelta("timer2")
+	var fastTime int64 = GetFileTimerDelta("timer3")
 	DeleteFileTimer("timer1")
+	DeleteFileTimer("timer2")
+	DeleteFileTimer("timer3")
 	t.Logf("Computed expF44=%v in %v ns\n", expVal, expTime)
 	t.Logf("Computed expParF44=%v in %v ns\n", expParVal, expParTime)
 	t.Logf("Computed fastF44=%v in %v ns\n", fastVal, fastTime)
@@ -277,7 +287,7 @@ func BenchmarkHashTableTimersPoll(b *testing.B) {
 		b.StartTimer()
 		PollTimer("t1")
 		b.StopTimer()
-		StopTimer("t1")
+		DeleteTimer("t1")
 	}
 }
 
@@ -286,7 +296,7 @@ func BenchmarkHashTableTimersStop(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		StartTimer("t1")
 		b.StartTimer()
-		StopTimer("t1")
+		DeleteTimer("t1")
 		b.StopTimer()
 	}
 }
