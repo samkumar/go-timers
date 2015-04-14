@@ -19,9 +19,11 @@ func StartTimer(name string) {
 	}
 }
 
-func ResetTimer(name string) {
-	if _, ok := timers[name]; ok {
-		timers[name] = time.Now().UnixNano()
+func ResetTimer(name string) int64 {
+	if val, ok := timers[name]; ok {
+		now := time.Now().UnixNano()
+		timers[name] = now
+		return now - val
 	} else {
 		panic(fmt.Sprintf("Attempted to reset timer %s, which is not running", name))
 	}
@@ -48,7 +50,7 @@ func StopTimer(name string) int64 {
 
 var timerDir string
 
-func SetCollection (dirString string) {
+func SetFileTimerCollection (dirString string) {
 	fi, err := os.Stat(dirString)
 	if err == nil && fi.IsDir() {
 		lastIndex := len(dirString) - 1
@@ -70,7 +72,7 @@ func expandFilePath(name string) string {
     because I reasoned that we may see some of the same timers from previous
     runs of the program. */
 func StartFileTimer(name string) {
-	file, err := os.OpenFile(expandFilePath(name), os.O_RDWR, 0666)
+	file, err := os.Create(expandFilePath(name))
 	defer file.Close()
 	if err == nil {
 		err = binary.Write(file, binary.LittleEndian, time.Now().UnixNano())
@@ -97,7 +99,7 @@ func PollFileTimer(name string) int64 {
 	}
 }
 
-func StopFileTimer(name string) {
+func DeleteFileTimer(name string) {
 	var err error = os.Remove(expandFilePath(name))
 	if err != nil {
 		panic(fmt.Sprintf("Could not stop file timer %s: %v", name, err))
