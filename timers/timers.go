@@ -161,3 +161,8 @@ func DeleteFileTimer(name string) {
 	}
 	os.Remove(expandFilePathEnd(name))
 }
+
+func DeleteFileTimerIfExists(name string) {
+	os.Remove(expandFilePathStart(name))
+	os.Remove(expandFilePathEnd(name))
+}

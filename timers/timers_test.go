@@ -147,15 +147,16 @@ func TestHashTableTimers6(t *testing.T) {
 			if r == nil || !finished {
 				t.Fail()
 			}
+			DeleteTimer("t1")
 		}()
 	StartTimer("t1")
 	DeleteTimer("t1")
 	StartTimer("t1")
 	StartTimer("t2")
-	DeleteTimer("t1")
+	EndTimer("t1")
 	DeleteTimer("t2")
 	finished = true
-	DeleteTimer("t1")
+	EndTimer("t1")
 }
 
 func TestFileTimers1(t *testing.T) {
@@ -246,7 +247,7 @@ func TestFileTimers4(t *testing.T) {
 	DeleteFileTimer("t3")
 	StartFileTimer("t4")
 	finished = true
-	PollTimer("t3")
+	PollFileTimer("t3")
 }
 
 func TestFileTimers5(t *testing.T) {
@@ -259,6 +260,7 @@ func TestFileTimers5(t *testing.T) {
 	StartFileTimer("t4")
 	DeleteFileTimer("t2")
 	StartFileTimer("t1")
+	DeleteFileTimer("t3")
 }
 
 func TestFileTimers6(t *testing.T) {
@@ -270,6 +272,32 @@ func TestFileTimers6(t *testing.T) {
 			}
 		}()
 	StartFileTimer("t1")
+	StartFileTimer("t2")
+	DeleteFileTimer("t2")
+	var delta int64 = GetFileTimerDelta("t1")
+	if delta != -2 {
+		t.Logf("Part 1: delta is %v", delta)
+		t.Fail()
+		DeleteFileTimer("t1")
+		return
+	}
+	EndFileTimer("t1")
+	EndFileTimer("t3")
+	delta = GetFileTimerDelta("t3")
+	if delta != -1 {
+		t.Logf("Part 2: delta is %v", delta)
+		t.Fail()
+		DeleteFileTimer("t1")
+		DeleteFileTimerIfExists("t3")
+	}
+	DeleteFileTimerIfExists("t3")
+	delta = GetFileTimerDelta("t1")
+	if delta < 0 {
+		t.Logf("Part 3: delta is %v", delta)
+		t.Fail()
+		DeleteFileTimer("t1")
+		return
+	}
 	DeleteFileTimer("t1")
 	StartFileTimer("t1")
 	StartFileTimer("t2")
@@ -282,7 +310,7 @@ func TestFileTimers6(t *testing.T) {
 /* I'm trying to see how much faster it is to poll a timer than to stop it. */
 func BenchmarkHashTableTimersPoll(b *testing.B) {
 	b.StopTimer()
-	for i := 0; i < b.N; i++ { // a roundabout way of doing it, but I want to make sure it's comparable to BenchMarkHashTableTimersStop
+	for i := 0; i < b.N; i++ { // a roundabout way of doing it, but I want to make sure it's comparable to BenchmarkHashTableTimersDelete
 		StartTimer("t1")
 		b.StartTimer()
 		PollTimer("t1")
@@ -291,7 +319,7 @@ func BenchmarkHashTableTimersPoll(b *testing.B) {
 	}
 }
 
-func BenchmarkHashTableTimersStop(b *testing.B) {
+func BenchmarkHashTableTimersDelete(b *testing.B) {
 	b.StopTimer()
 	for i := 0; i < b.N; i++ {
 		StartTimer("t1")
@@ -301,10 +329,32 @@ func BenchmarkHashTableTimersStop(b *testing.B) {
 	}
 }
 
+func BenchmarkHashTableTimersEnd(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		StartTimer("t1")
+		b.StartTimer()
+		EndTimer("t1")
+		b.StopTimer()
+		DeleteTimer("t1")
+	}
+}
+
 func BenchmarkFileTimersPoll(b *testing.B) {
 	StartFileTimer("t1")
 	b.ResetTimer();
 	for i := 0; i < b.N; i++ {
 		PollFileTimer("t1")
+	}
+	b.StopTimer()
+	DeleteFileTimer("t1")
+}
+
+func BenchmarkFileTimersEnd(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		StartFileTimer("timerB")
+		b.StartTimer()
+		EndFileTimer("timerB")
+		b.StopTimer()
+		DeleteFileTimer("timerB")
 	}
 }
