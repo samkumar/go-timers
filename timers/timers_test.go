@@ -329,6 +329,11 @@ func checkLogBuffer(t *testing.T, timers map[string]*TimerSummary) {
 	t4data, ok4 := timers["t4"]
 	t5data, ok5 := timers["t5"]
 	t6data, ok6 := timers["t6"]
+	if len(timers) != 6 {
+		t.Log("Extra timers are present")
+		t.Fail()
+		return
+	}
 	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
 		t.Log("Some timers are missing")
 		t.Fail()
@@ -543,4 +548,22 @@ func BenchmarkLogTimersStart(b *testing.B) {
 		EndLogTimer("timerD")
 	}
 	CloseLogFile()
+}
+
+func BenchmarkBufferedLogTimersEnd(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StartTimer()
+		EndBufferedLogTimer("timerC")
+		b.StopTimer()
+		ResetLogBuffer()
+	}
+}
+
+func BenchmarkBufferedLogTimersStart(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StartTimer()
+		StartBufferedLogTimer("timerD")
+		b.StopTimer()
+		ResetLogBuffer()
+	}
 }
