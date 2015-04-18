@@ -42,24 +42,24 @@ func TestMain(m *testing.M) {
 func TestHashTableTimers1(t *testing.T) {
 	StartTimer("total")
 	StartTimer("t1")
-	var expF40 uint64 = expFibonacci(44)
+	var expF40 uint64 = expFibonacci(40)
 	var expDeltaT int64 = PollTimer("t1")
 	ResetTimer("t1")
-	var expParF40 uint64 = expParFibonacci(44)
+	var expParF40 uint64 = expParFibonacci(40)
 	EndTimer("t1")
 	var expParDeltaT int64 = GetTimerDelta("t1")
 	StartTimer("t2")
-	var fastF40reset uint64 = fastFibonacci(44)
+	var fastF40reset uint64 = fastFibonacci(40)
 	var fastDeltaTreset int64 = ResetTimer("t2")
 	DeleteTimer("t2")
 	StartTimer("t3")
-	var fastF40poll uint64 = fastFibonacci(44)
+	var fastF40poll uint64 = fastFibonacci(40)
 	var fastDeltaTpoll int64 = PollTimer("t3")
 	EndTimer("total")
-	t.Logf("Computed expF44=%v in %v ns\n", expF40, expDeltaT)
-	t.Logf("Computed expParF44=%v in %v ns\n", expParF40, expParDeltaT)
-	t.Logf("Computed fastF44reset=%v in %v ns\n", fastF40reset, fastDeltaTreset)
-	t.Logf("Computed fastF44poll=%v in %v ns\n", fastF40poll, fastDeltaTpoll)
+	t.Logf("Computed expF40=%v in %v ns\n", expF40, expDeltaT)
+	t.Logf("Computed expParF40=%v in %v ns\n", expParF40, expParDeltaT)
+	t.Logf("Computed fastF40reset=%v in %v ns\n", fastF40reset, fastDeltaTreset)
+	t.Logf("Computed fastF40poll=%v in %v ns\n", fastF40poll, fastDeltaTpoll)
 	t.Logf("Total time taken: %v", GetTimerDelta("total"))
 	DeleteTimer("t3") // Free memory
 	DeleteTimer("t1")
@@ -171,17 +171,17 @@ func TestFileTimers1(t *testing.T) {
 	StartFileTimer("timer2")
 	StartFileTimer("timer3")
 	go func () {
-			expVal = expFibonacci(45)
+			expVal = expFibonacci(42)
 			EndFileTimer("timer1")
 			exp <- true
 		}()
 	go func () {
-			expParVal = expParFibonacci(45)
+			expParVal = expParFibonacci(42)
 			EndFileTimer("timer2")
 			expPar <- true
 		}()
 	go func () {
-			fastVal = fastFibonacci(45)
+			fastVal = fastFibonacci(42)
 			EndFileTimer("timer3")
 			fast <- true
 		}()
@@ -199,9 +199,9 @@ func TestFileTimers1(t *testing.T) {
 	DeleteFileTimer("timer1")
 	DeleteFileTimer("timer2")
 	DeleteFileTimer("timer3")
-	t.Logf("Computed expF44=%v in %v ns\n", expVal, expTime)
-	t.Logf("Computed expParF44=%v in %v ns\n", expParVal, expParTime)
-	t.Logf("Computed fastF44=%v in %v ns\n", fastVal, fastTime)
+	t.Logf("Computed expF42=%v in %v ns\n", expVal, expTime)
+	t.Logf("Computed expParF42=%v in %v ns\n", expParVal, expParTime)
+	t.Logf("Computed fastF42=%v in %v ns\n", fastVal, fastTime)
 }
 
 // These test are similar to those for the hash table timers
@@ -307,9 +307,27 @@ func TestFileTimers6(t *testing.T) {
 	DeleteFileTimer("t1")
 }
 
+func TestLogTimers1(t *testing.T) {
+	SetLogFile("/home/sam/timers/logtimer")
+	StartLogTimer("fastfib")
+	var f41f uint64 = fastFibonacci(41)
+	EndLogTimer("fastfib")
+	StartLogTimer("slowfib")
+	var f41s uint64 = expFibonacci(41)
+	EndLogTimer("slowfib")
+	CloseLogFile()
+	var timers map[string]*TimerSummary = ParseFileToMap([]string{"/home/sam/timers/logtimer"})
+	var deltas map[string][]int64 = ParseMapToDeltas(timers)
+	t.Logf("Fast fib 41 is %v: computed in %v ns", f41f, deltas["fastfib"][0])
+	t.Logf("Slow fib 41 is %v: computed in %v ns", f41s, deltas["slowfib"][0])
+}
+
 /* I'm trying to see how much faster it is to poll a timer than to stop it. */
 func BenchmarkHashTableTimersPoll(b *testing.B) {
-	b.StopTimer()
+	if testing.Short() {
+		b.Skip("Skipping test in short mode.")
+	}
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ { // a roundabout way of doing it, but I want to make sure it's comparable to BenchmarkHashTableTimersDelete
 		StartTimer("t1")
 		b.StartTimer()
@@ -320,7 +338,10 @@ func BenchmarkHashTableTimersPoll(b *testing.B) {
 }
 
 func BenchmarkHashTableTimersDelete(b *testing.B) {
-	b.StopTimer()
+	if testing.Short() {
+		b.Skip("Skipping test in short mode.")
+	}
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		StartTimer("t1")
 		b.StartTimer()
@@ -331,11 +352,21 @@ func BenchmarkHashTableTimersDelete(b *testing.B) {
 
 func BenchmarkHashTableTimersEnd(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		StartTimer("t1")
+		StartTimer("t2")
 		b.StartTimer()
-		EndTimer("t1")
+		EndTimer("t2")
 		b.StopTimer()
-		DeleteTimer("t1")
+		DeleteTimer("t2")
+	}
+}
+
+func BenchmarkHashTableTimersStop(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StartTimer()
+		StartTimer("t3")
+		b.StopTimer()
+		EndTimer("t3")
+		DeleteTimer("t3")
 	}
 }
 
@@ -351,10 +382,44 @@ func BenchmarkFileTimersPoll(b *testing.B) {
 
 func BenchmarkFileTimersEnd(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		StartFileTimer("timerB")
+		StartFileTimer("timerA")
 		b.StartTimer()
-		EndFileTimer("timerB")
+		EndFileTimer("timerA")
 		b.StopTimer()
-		DeleteFileTimer("timerB")
 	}
+	DeleteFileTimer("timerA")
+}
+
+func BenchmarkFileTimersStart(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StartTimer()
+		StartFileTimer("timerB")
+		b.StopTimer()
+		EndFileTimer("timerB")
+	}
+	DeleteFileTimer("timerB")
+}
+
+func BenchmarkLogTimersEnd(b *testing.B) {
+	SetLogFile("/home/sam/timers/logfile1")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		StartLogTimer("timerC")
+		b.StartTimer()
+		EndLogTimer("timerC")
+		b.StopTimer()
+	}
+	CloseLogFile()
+}
+
+func BenchmarkLogTimersStart(b *testing.B) {
+	SetLogFile("/home/sam/timers/logfile2")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StartTimer()
+		StartLogTimer("timerD")
+		b.StopTimer()
+		EndLogTimer("timerD")
+	}
+	CloseLogFile()
 }

@@ -3,7 +3,9 @@ package timers
 import (
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 	)
 
@@ -165,4 +167,142 @@ func DeleteFileTimer(name string) {
 func DeleteFileTimerIfExists(name string) {
 	os.Remove(expandFilePathStart(name))
 	os.Remove(expandFilePathEnd(name))
+}
+
+/* LOG-BASED TIMERS */
+
+var file *os.File = nil
+
+func SetLogFile(filepath string) {
+	if file != nil {
+		file.Close()
+	}
+	var err error
+	file, err = os.Create(filepath)
+	if err != nil {
+		panic(fmt.Sprintf("Attempted to set log to invalid filepath %v", err))
+	}
+}
+
+func CloseLogFile() {
+	if file == nil {
+		panic(fmt.Sprintf("Attempted to close log file, but not log file is active"))
+	} else {
+		file.Close()
+		file = nil
+	}
+}
+
+func logEvent(name string, tag string) {
+	_, err := file.WriteString(fmt.Sprintf("\x00%s\x00%s\x00", name, tag))
+	var currTime int64 = time.Now().UnixNano()
+	if err == nil {
+		err = binary.Write(file, binary.LittleEndian, currTime)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to write current time to file: %v", err))
+		}
+	} else {
+		panic(fmt.Sprintf("Failed to write timer name to file: %v", err))
+	}	
+}
+
+const (
+	START_SYMBOL string = "s"
+	END_SYMBOL string = "e"
+	)
+
+/** Name can't contain \0. */
+func StartLogTimer(name string) {
+	logEvent(name, START_SYMBOL)
+}
+
+func EndLogTimer(name string) {
+	logEvent(name, END_SYMBOL)
+}
+
+type TimerSummary struct {
+	starts []int64
+	ends []int64
+}
+
+func ParseFileToMap(filenames []string) map[string]*TimerSummary {
+	var data [][]byte = make([][]byte, len(filenames))
+	for i := 0; i < len(filenames); i++ {
+		f, err := os.Open(filenames[i])
+		if err != nil {
+			f.Close()
+			panic(fmt.Sprintf("Attempted to parse file at invalid filepath %s", filenames[i]))
+		}
+		data[i], err = ioutil.ReadAll(f) // it's OK to buffer everything in memory since I'm constructing a hashtable out of it anyway
+		f.Close()
+		if err != nil {
+			panic(fmt.Sprintf("Could not read file at filepath %s", filenames[i]))
+		}
+	}
+	var tmap map[string]*TimerSummary = make(map[string]*TimerSummary)
+	var fragments []string
+	var name string
+	var summary *TimerSummary
+	var ok bool
+	var time int64
+	for i := 0; i < len(filenames); i++ {
+		fragments = strings.Split(string(data[i]), "\x00")
+		if (len(fragments) % 3 == 1) {
+			for j := 1; j < len(fragments); j += 3 {
+				name = fragments[j]
+				summary, ok = tmap[name]
+				if !ok {
+					summary = &TimerSummary{make([]int64, 0, 1), make([]int64, 0, 1)}
+					tmap[name] = summary
+				}
+				binary.Read(strings.NewReader(fragments[j + 2]), binary.LittleEndian, &time)
+				if fragments[j + 1] == START_SYMBOL {
+					summary.starts = append(summary.starts, time)
+				} else {
+					summary.ends = append(summary.ends, time)
+				}
+			}
+		} else {
+			panic(fmt.Sprintf("Log file %s is malformed: has %v fragments", filenames[i], len(fragments)))
+		}
+	}
+	return tmap
+}
+
+func ParseMapToDeltas(tmap map[string]*TimerSummary) map[string][]int64 {
+	var tname string
+	var tsummary *TimerSummary
+	var deltamap map[string][]int64 = make(map[string][]int64)
+	var i int
+	
+	var deltas []int64
+	
+	TimerLoop:
+		for tname, tsummary = range tmap {
+			if len(tsummary.starts) != len(tsummary.ends) {
+				fmt.Printf("Timer %s has a different number of starts than ends\n", tname)
+				continue
+			} else if len(tsummary.starts) == 0 {
+				fmt.Printf("Timer %s was ended but never started\n", tname)
+				continue
+			} else if len(tsummary.ends) == 0 {
+				fmt.Printf("Timer %s was started but never ended\n", tname)
+				continue
+			}
+			deltas = make([]int64, len(tsummary.starts))
+			for i = 0; i < len(tsummary.ends); i++ {
+				if false && tsummary.starts[i] > tsummary.ends[i] {
+					fmt.Printf("Timer %s has an end time preceding start time\n", tname)
+					continue TimerLoop
+				}
+				if false && i > 1 && tsummary.starts[i] < tsummary.ends[i - 1] {
+					fmt.Printf("Timer %s was started twice without being ended in between\n")
+					continue TimerLoop
+				}
+				deltas[i] = tsummary.ends[i] - tsummary.starts[i]
+			}
+			deltamap[tname] = deltas
+		}
+		
+	return deltamap
 }
