@@ -322,6 +322,54 @@ func TestLogTimers1(t *testing.T) {
 	t.Logf("Slow fib 41 is %v: computed in %v ns", f41s, deltas["slowfib"][0])
 }
 
+func checkLogBuffer(t *testing.T, timers map[string]*TimerSummary) {
+	t1data, ok1 := timers["t1"]
+	t2data, ok2 := timers["t2"]
+	t3data, ok3 := timers["t3"]
+	t4data, ok4 := timers["t4"]
+	t5data, ok5 := timers["t5"]
+	t6data, ok6 := timers["t6"]
+	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
+		t.Log("Some timers are missing")
+		t.Fail()
+		return
+	}
+	t1s := len(t1data.starts)
+	t2s := len(t2data.starts)
+	t3s := len(t3data.starts)
+	t4s := len(t4data.starts)
+	t5s := len(t5data.starts)
+	t6s := len(t6data.starts)
+	t1e := len(t1data.ends)
+	t2e := len(t2data.ends)
+	t3e := len(t3data.ends)
+	t4e := len(t4data.ends)
+	t5e := len(t5data.ends)
+	t6e := len(t6data.ends)
+	if t1s != 2 || t2s != 2 || t3s != 2 || t4s != 0 || t5s != 1 || t6s != 2 {
+		t.Log("Bad start counts")
+		t.Fail()
+		return
+	}
+	if t1e != 2 || t2e != 2 || t3e != 2 || t4e != 1 || t5e != 0 || t6e != 2 {
+		t.Log("Bad end counts")
+		t.Fail()
+		return
+	}
+	var deltas map[string][]int64 = ParseMapToDeltas(timers)
+	_, ex1 := deltas["t1"]
+	_, ex2 := deltas["t2"]
+	t3deltas, ex3 := deltas["t3"]
+	_, ex4 := deltas["t4"]
+	_, ex5 := deltas["t5"]
+	_, ex6 := deltas["t6"]
+	if ex1 || ex2 || !ex3 || ex4 || ex5 || ex6 || len(t3deltas) != 2 {
+		t.Log("Map parsed into deltas incorrectly")
+		t.Fail()
+		return
+	}
+}
+
 func TestLogTimers2(t *testing.T) {
 	SetLogFile("/home/sam/timers/logtimer2")
 	StartLogTimer("t1")
@@ -348,47 +396,51 @@ func TestLogTimers2(t *testing.T) {
 	SetLogFile("/home/sam/timers/logtimer4")
 	CloseLogFile()
 	var timers map[string]*TimerSummary = ParseFileToMap([]string{"/home/sam/timers/logtimer2", "/home/sam/timers/logtimer3", "/home/sam/timers/logtimer4"})
-	t1data, ok1 := timers["t1"]
-	t2data, ok2 := timers["t2"]
-	t3data, ok3 := timers["t3"]
-	t4data, ok4 := timers["t4"]
-	t5data, ok5 := timers["t5"]
-	t6data, ok6 := timers["t6"]
-	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
+	checkLogBuffer(t, timers)
+}
+
+// Nearly identical to the previous test, but tests the buffer
+func TestLogTimers3(t *testing.T) {
+	StartBufferedLogTimer("t1")
+	StartBufferedLogTimer("t2")
+	EndBufferedLogTimer("t1")
+	EndBufferedLogTimer("t2")
+	EndBufferedLogTimer("t1")
+	StartBufferedLogTimer("t3")
+	StartBufferedLogTimer("t6")
+	StartBufferedLogTimer("t1")
+	StartBufferedLogTimer("t6")
+	StartBufferedLogTimer("t5")
+	EndBufferedLogTimer("t2")
+	EndBufferedLogTimer("t6")
+	EndBufferedLogTimer("t3")
+	StartBufferedLogTimer("t2")
+	EndBufferedLogTimer("t6")
+	StartBufferedLogTimer("t3")
+	EndBufferedLogTimer("t4")
+	EndBufferedLogTimer("t3")
+	var timers map[string]*TimerSummary = GetLogBuffer()
+	checkLogBuffer(t, timers)
+	var f *os.File
+	f, _ = os.Create("/home/sam/timers/bufferedlog")
+	WriteLogBuffer(f)
+	f.Close()
+	timers = ParseFileToMap([]string{"/home/sam/timers/bufferedlog"})
+	checkLogBuffer(t, timers)
+	ResetLogBuffer()
+	f, _ = os.Create("/home/sam/timers/bufferedlog")
+	WriteLogBuffer(f)
+	f.Close()
+	var timers2 map[string]*TimerSummary = ParseFileToMap([]string{"/home/sam/timers/bufferedlog"})
+	if len(timers2) != 0 {
 		t.Fail()
-		return
 	}
-	t1s := len(t1data.starts)
-	t2s := len(t2data.starts)
-	t3s := len(t3data.starts)
-	t4s := len(t4data.starts)
-	t5s := len(t5data.starts)
-	t6s := len(t6data.starts)
-	t1e := len(t1data.ends)
-	t2e := len(t2data.ends)
-	t3e := len(t3data.ends)
-	t4e := len(t4data.ends)
-	t5e := len(t5data.ends)
-	t6e := len(t6data.ends)
-	if t1s != 2 || t2s != 2 || t3s != 2 || t4s != 0 || t5s != 1 || t6s != 2 {
-		t.Fail()
-		return
-	}
-	if t1e != 2 || t2e != 2 || t3e != 2 || t4e != 1 || t5e != 0 || t6e != 2 {
-		t.Fail()
-		return
-	}
-	var deltas map[string][]int64 = ParseMapToDeltas(timers)
-	_, ex1 := deltas["t1"]
-	_, ex2 := deltas["t2"]
-	t3deltas, ex3 := deltas["t3"]
-	_, ex4 := deltas["t4"]
-	_, ex5 := deltas["t5"]
-	_, ex6 := deltas["t6"]
-	if ex1 || ex2 || !ex3 || ex4 || ex5 || ex6 || len(t3deltas) != 2 {
-		t.Fail()
-		return
-	}
+	SetLogBuffer(timers)
+	f, _ = os.Create("/home/sam/timers/bufferedlog2")
+	WriteLogBuffer(f)
+	f.Close()
+	timers2 = ParseFileToMap([]string{"/home/sam/timers/bufferedlog2"})
+	checkLogBuffer(t, timers2)
 }
 
 /* I'm trying to see how much faster it is to poll a timer than to stop it. */

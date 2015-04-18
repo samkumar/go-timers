@@ -197,9 +197,8 @@ func CloseLogFile() {
 
 func logEvent(name string, tag string) {
 	_, err := file.WriteString(fmt.Sprintf("%s\x00%s", name, tag))
-	var currTime int64 = time.Now().UnixNano()
 	if err == nil {
-		err = binary.Write(file, binary.LittleEndian, currTime)
+		err = binary.Write(file, binary.LittleEndian, time.Now().UnixNano())
 		if err != nil {
 			panic(fmt.Sprintf("Failed to write current time to file: %v", err))
 		}
@@ -332,4 +331,71 @@ func ParseMapToDeltas(tmap map[string]*TimerSummary) map[string][]int64 {
 		}
 		
 	return deltamap
+}
+
+/* BUFFERED LOG TIMER 
+   An in-memory version of the log-based timer. Can be serialized to a log file. */
+
+var bufferedTimers map[string]*TimerSummary = make(map[string]*TimerSummary)
+
+func getSummary(name string) (summary *TimerSummary) {
+	var exists bool
+	summary, exists = bufferedTimers[name]
+	if !exists {
+		summary = &TimerSummary{make([]int64, 0, 7), make([]int64, 0, 7)}
+		bufferedTimers[name] = summary
+	}
+	return
+}
+
+func StartBufferedLogTimer(name string) {
+	var summary *TimerSummary = getSummary(name)
+	summary.starts = append(summary.starts, time.Now().UnixNano())
+}
+
+func EndBufferedLogTimer(name string) {
+	var summary *TimerSummary = getSummary(name)
+	summary.ends = append(summary.ends, time.Now().UnixNano())
+}
+
+func writeArray(writer io.Writer, array []int64, name string, symbol string) error {
+	var err error
+	for i := 0; i < len(array); i++ {
+		_, err = writer.Write([]byte(fmt.Sprintf("%s\x00%s", name, symbol)))
+		if err != nil {
+			return err
+		}
+		err = binary.Write(writer, binary.LittleEndian, array[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func WriteLogBuffer(writer io.Writer) error {
+	var err error
+	for name, summary := range bufferedTimers {
+		err = writeArray(writer, summary.starts, name, START_SYMBOL)
+		if err != nil {
+			return err
+		}
+		err = writeArray(writer, summary.ends, name, END_SYMBOL)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func GetLogBuffer() map[string]*TimerSummary {
+	return bufferedTimers
+}
+
+func ResetLogBuffer() {
+	bufferedTimers = make(map[string]*TimerSummary)
+}
+
+func SetLogBuffer(newbuffer map[string]*TimerSummary) {
+	bufferedTimers = newbuffer
 }
