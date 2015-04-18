@@ -1,11 +1,12 @@
 package timers
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
-	"strings"
 	"time"
 	)
 
@@ -188,13 +189,14 @@ func CloseLogFile() {
 	if file == nil {
 		panic(fmt.Sprintf("Attempted to close log file, but not log file is active"))
 	} else {
+		file.Sync()
 		file.Close()
 		file = nil
 	}
 }
 
 func logEvent(name string, tag string) {
-	_, err := file.WriteString(fmt.Sprintf("\x00%s\x00%s\x00", name, tag))
+	_, err := file.WriteString(fmt.Sprintf("%s\x00%s", name, tag))
 	var currTime int64 = time.Now().UnixNano()
 	if err == nil {
 		err = binary.Write(file, binary.LittleEndian, currTime)
@@ -209,6 +211,7 @@ func logEvent(name string, tag string) {
 const (
 	START_SYMBOL string = "s"
 	END_SYMBOL string = "e"
+	LEN_TYPE_SYMBOL int = 1 // both START_SYMBOL and END_SYMBOL have this length
 	)
 
 /** Name can't contain \0. */
@@ -223,6 +226,17 @@ func EndLogTimer(name string) {
 type TimerSummary struct {
 	starts []int64
 	ends []int64
+}
+
+func checkerr(f *os.File, filename string, err error) {
+	if err != nil {
+		f.Close()
+		if err == io.EOF {
+			panic(fmt.Sprintf("Unexpected end of file when parsing %s", filename))
+		} else {
+			panic(fmt.Sprintf("Could not read file at filepath %s", filename))
+		}
+	}
 }
 
 func ParseFileToMap(filenames []string) map[string]*TimerSummary {
@@ -240,31 +254,44 @@ func ParseFileToMap(filenames []string) map[string]*TimerSummary {
 		}
 	}
 	var tmap map[string]*TimerSummary = make(map[string]*TimerSummary)
-	var fragments []string
+	var buf []byte = make([]byte, LEN_TYPE_SYMBOL, LEN_TYPE_SYMBOL)
 	var name string
+	var frag2 string
 	var summary *TimerSummary
 	var ok bool
 	var time int64
+	var freader *bufio.Reader
+	var fname string
+	
 	for i := 0; i < len(filenames); i++ {
-		fragments = strings.Split(string(data[i]), "\x00")
-		if (len(fragments) % 3 == 1) {
-			for j := 1; j < len(fragments); j += 3 {
-				name = fragments[j]
-				summary, ok = tmap[name]
-				if !ok {
-					summary = &TimerSummary{make([]int64, 0, 1), make([]int64, 0, 1)}
-					tmap[name] = summary
-				}
-				binary.Read(strings.NewReader(fragments[j + 2]), binary.LittleEndian, &time)
-				if fragments[j + 1] == START_SYMBOL {
-					summary.starts = append(summary.starts, time)
-				} else {
-					summary.ends = append(summary.ends, time)
-				}
-			}
-		} else {
-			panic(fmt.Sprintf("Log file %s is malformed: has %v fragments", filenames[i], len(fragments)))
+		fname = filenames[i]
+		f, err := os.Open(fname)
+		if err != nil {
+			f.Close()
+			panic(fmt.Sprintf("Attempted to parse file at invalid filepath %s", fname))
 		}
+		freader = bufio.NewReader(f)
+		name, err = freader.ReadString('\x00')
+		for err != io.EOF {
+			name = name[:len(name) - 1]
+			_, err = freader.Read(buf)
+			checkerr(f, fname, err)
+			frag2 = string(buf)
+			err = binary.Read(freader, binary.LittleEndian, &time)
+			checkerr(f, fname, err)
+			summary, ok = tmap[name]
+			if !ok {
+				summary = &TimerSummary{make([]int64, 0, 1), make([]int64, 0, 1)}
+				tmap[name] = summary
+			}
+			if frag2 == START_SYMBOL {
+				summary.starts = append(summary.starts, time)
+			} else {
+				summary.ends = append(summary.ends, time)
+			}
+			name, err = freader.ReadString('\x00')
+		}
+		f.Close()
 	}
 	return tmap
 }
@@ -279,24 +306,24 @@ func ParseMapToDeltas(tmap map[string]*TimerSummary) map[string][]int64 {
 	
 	TimerLoop:
 		for tname, tsummary = range tmap {
-			if len(tsummary.starts) != len(tsummary.ends) {
-				fmt.Printf("Timer %s has a different number of starts than ends\n", tname)
-				continue
-			} else if len(tsummary.starts) == 0 {
+			if len(tsummary.starts) == 0 {
 				fmt.Printf("Timer %s was ended but never started\n", tname)
 				continue
 			} else if len(tsummary.ends) == 0 {
 				fmt.Printf("Timer %s was started but never ended\n", tname)
 				continue
+			} else if len(tsummary.starts) != len(tsummary.ends) {
+				fmt.Printf("Timer %s has a different number of starts than ends\n", tname)
+				continue
 			}
 			deltas = make([]int64, len(tsummary.starts))
 			for i = 0; i < len(tsummary.ends); i++ {
-				if false && tsummary.starts[i] > tsummary.ends[i] {
+				if tsummary.starts[i] > tsummary.ends[i] {
 					fmt.Printf("Timer %s has an end time preceding start time\n", tname)
 					continue TimerLoop
 				}
-				if false && i > 1 && tsummary.starts[i] < tsummary.ends[i - 1] {
-					fmt.Printf("Timer %s was started twice without being ended in between\n")
+				if i > 0 && tsummary.starts[i] < tsummary.ends[i - 1] {
+					fmt.Printf("Timer %s was started twice without being ended in between\n", tname)
 					continue TimerLoop
 				}
 				deltas[i] = tsummary.ends[i] - tsummary.starts[i]
